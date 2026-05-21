@@ -101,6 +101,28 @@ func handlerAddFeed(s *state, cmd command) error {
 	return nil
 }
 
+func handlerGetFeeds(s *state, cmd command) error {
+	feeds, err := s.db.GetFeeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve feeds: %v", err)
+	}
+
+	if len(feeds) == 0 {
+		fmt.Println("No feeds found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d feeds:\n", len(feeds))
+	for _, feed := range feeds {
+		user, err := s.db.GetUserByID(context.Background(), feed.UserID)
+		if err != nil {
+			return fmt.Errorf("Failed to retrieve user for feed %s: %v", feed.Name, err)
+		}
+		fmt.Printf("* %s (%s) | Created by: %s\n", feed.Name, feed.Url, user.Name)
+	}
+	return nil
+}
+
 func handlerAgg(s *state, cmd command) error {
 	feedURL := "https://www.wagslane.dev/index.xml"
 	feed, err := fetchFeed(context.Background(), feedURL)
