@@ -30,7 +30,7 @@ func main() {
 	dbQueries := database.New(db)
 
 	// Initialize application state
-	s := &state{
+	programState := &state{
 		db:     dbQueries,
 		config: &cfg,
 	}
@@ -41,14 +41,15 @@ func main() {
 	cmds.register("register", handlerRegister)
 	cmds.register("reset", handlerReset)
 	cmds.register("users", handlerUsers)
+	cmds.register("agg", handlerAgg)
+	cmds.register("addfeed", handlerAddFeed)
 
 	// Parse and execute command
 	if len(os.Args) < 2 {
 		log.Fatalf("No command provided")
 	}
 	// The first argument is the command name, and the rest are its arguments
-	cmd := command{Name: os.Args[1], Args: os.Args[2:]}
-	if err := cmds.run(s, cmd); err != nil {
+	if err := cmds.run(programState, command{Name: os.Args[1], Args: os.Args[2:]}); err != nil {
 		log.Fatalf("Command failed: %v", err)
 	}
 }
