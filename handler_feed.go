@@ -132,16 +132,22 @@ func handlerGetFeeds(s *state, cmd command) error {
 	return nil
 }
 
-// handlerAgg handles the "agg" command, which fetches and prints a specific RSS feed.
+// handlerAgg handles the "agg" command, which starts the feed aggregation process by periodically fetching the latest items from the feeds that users are following.
 func handlerAgg(s *state, cmd command) error {
-	// Syntax: agg
-	feedURL := "https://www.wagslane.dev/index.xml"
-	feed, err := fetchFeed(context.Background(), feedURL)
-	if err != nil {
-		log.Fatalf("Failed to fetch feed: %v", err)
+	// Syntax: agg <time_between_reqs>
+	if len(cmd.Args) < 1 {
+		return fmt.Errorf("Time between requests is required! Usage: %v <time_between_reqs>", cmd.Name)
 	}
-	fmt.Println(feed)
-	return nil
+	timeBetweenReqs, err := time.ParseDuration(cmd.Args[0])
+	if err != nil {
+		return fmt.Errorf("Invalid duration: %v", err)
+	}
+	ticker := time.NewTicker(timeBetweenReqs)
+	fmt.Printf("Collecting feeds every %v\n", timeBetweenReqs)
+	defer ticker.Stop()
+	for ; ; <-ticker.C {
+		scrapeFeeds(s)
+	}
 }
 
 // handlerFollow handles the "follow" command, which allows the current user to follow a feed by its name.
@@ -231,13 +237,26 @@ func handlerFollowing(s *state, cmd command, user database.User) error {
 	return nil
 }
 
-func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
-	return func(s *state, cmd command) error {
-		// Get the current user from the database using the username stored in the configuration
-		currentUser, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
-		if err != nil {
-			return fmt.Errorf("You must be logged in to use this command!")
-		}
-		return handler(s, cmd, currentUser)
+func scrapeFeeds(s *state) {
+	// This function will be responsible for periodically fetching the latest items from the feeds that users are following
+	feedToFetch, err := s.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		log.Printf("Failed to get next feed to fetch: %v", err)
+		return
+	}
+	fmt.Printf("Fetching feed: %s\n", feedToFetch.Name)
+	_, err = s.db.MarkFeedFetched(context.Background(), feedToFetch.ID)
+	if err != nil {
+		log.Printf("Failed to mark feed as fetched: %v", err)
+		return
+	}
+	feed, err := fetchFeed(context.Background(), feedToFetch.Url)
+	if err != nil {
+		log.Printf("Failed to fetch feed: %v", err)
+		return
+	}
+	log.Printf("Feed %s collected, %v posts found", feed.Channel.Title, len(feed.Channel.Items))
+	for _, item := range feed.Channel.Items {
+		fmt.Printf("New post: %s\n", item.Title)
 	}
 }

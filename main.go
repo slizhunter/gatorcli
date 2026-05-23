@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 
@@ -54,5 +56,16 @@ func main() {
 	// The first argument is the command name, and the rest are its arguments
 	if err := cmds.run(programState, command{Name: os.Args[1], Args: os.Args[2:]}); err != nil {
 		log.Fatalf("Command failed: %v", err)
+	}
+}
+
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		// Get the current user from the database using the username stored in the configuration
+		currentUser, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("You must be logged in to use this command!")
+		}
+		return handler(s, cmd, currentUser)
 	}
 }
