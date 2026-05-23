@@ -70,9 +70,11 @@ func fetchFeed(ctx context.Context, feedURL string) (*RSSFeed, error) {
 	return &feed, nil
 }
 
-func handlerAddFeed(s *state, cmd command) error {
+// handlerAddFeed handles the "addfeed" command, which allows the current user to add a new feed by providing its name and URL.
+func handlerAddFeed(s *state, cmd command, user database.User) error {
+	// Syntax: addfeed <feed name> <feed URL>
 	// Get the current user from the database using the username stored in the configuration
-	currentUser, _ := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+	// currentUser, _ := s.db.GetUser(context.Background(), s.config.CurrentUserName)
 
 	// Ensure a feed URL is provided as an argument
 	if len(cmd.Args) < 2 {
@@ -80,7 +82,7 @@ func handlerAddFeed(s *state, cmd command) error {
 	}
 	// Fetch the feed data from the provided URL
 	feedURL := cmd.Args[1]
-	feed, err := fetchFeed(context.Background(), feedURL)
+	_, err := fetchFeed(context.Background(), feedURL)
 	if err != nil {
 		return fmt.Errorf("Failed to fetch feed: %v", err)
 	}
@@ -91,17 +93,24 @@ func handlerAddFeed(s *state, cmd command) error {
 		UpdatedAt: time.Now().UTC(),
 		Name:      cmd.Args[0],
 		Url:       feedURL,
-		UserID:    currentUser.ID,
+		UserID:    user.ID,
 	}
-	_, err = s.db.CreateFeed(context.Background(), feedParams)
+	feed, err := s.db.CreateFeed(context.Background(), feedParams)
 	if err != nil {
 		return fmt.Errorf("Failed to create feed: %v", err)
 	}
-	fmt.Printf("Feed added: %s\n", feed)
+	fmt.Printf("Feed added: %s\n", feed.Name)
+	err = handlerFollow(s, command{Args: []string{feedURL}}, user)
+	if err != nil {
+		return fmt.Errorf("Failed to follow feed: %v", err)
+	}
 	return nil
 }
 
+// handlerGetFeeds handles the "feeds" command, which retrieves and prints the list of all feeds from the database,
+// including their names, URLs, and the users who created them.
 func handlerGetFeeds(s *state, cmd command) error {
+	// Syntax: feeds
 	feeds, err := s.db.GetFeeds(context.Background())
 	if err != nil {
 		return fmt.Errorf("Failed to retrieve feeds: %v", err)
@@ -123,7 +132,9 @@ func handlerGetFeeds(s *state, cmd command) error {
 	return nil
 }
 
+// handlerAgg handles the "agg" command, which fetches and prints a specific RSS feed.
 func handlerAgg(s *state, cmd command) error {
+	// Syntax: agg
 	feedURL := "https://www.wagslane.dev/index.xml"
 	feed, err := fetchFeed(context.Background(), feedURL)
 	if err != nil {
@@ -131,4 +142,73 @@ func handlerAgg(s *state, cmd command) error {
 	}
 	fmt.Println(feed)
 	return nil
+}
+
+// handlerFollow handles the "follow" command, which allows the current user to follow a feed by its name.
+func handlerFollow(s *state, cmd command, user database.User) error {
+	// Syntax: follow <feed URL>
+	// Get the current user from the database using the username stored in the configuration
+	// currentUser, _ := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+
+	// Ensure a feed URL is provided as an argument
+	if len(cmd.Args) < 1 {
+		return fmt.Errorf("A feed URL is required!")
+	}
+	feedURL := cmd.Args[0]
+
+	// Retrieve the feed from the database using the provided feed URL
+	feed, err := s.db.GetFeedByURL(context.Background(), feedURL)
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve feed: %v", err)
+	}
+
+	// Create a new feed follow in the database using the current user's ID and the retrieved feed's ID
+	followParams := database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		FeedID:    feed.ID,
+		UserID:    user.ID,
+	}
+	_, err = s.db.CreateFeedFollow(context.Background(), followParams)
+	if err != nil {
+		return fmt.Errorf("Failed to follow feed: %v", err)
+	}
+	fmt.Printf("Now following feed: %s\n", feed.Name)
+	return nil
+}
+
+// handlerFollowing handles the "following" command, which retrieves and prints the list of feeds that the current user is following.
+func handlerFollowing(s *state, cmd command, user database.User) error {
+	// Syntax: following
+	// Get the current user from the database using the username stored in the configuration
+	// currentUser, _ := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+
+	// Retrieve the list of feeds that the current user is following from the database
+	following, err := s.db.GetFeedFollowsForUser(context.Background(), user.ID)
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve following feeds: %v", err)
+	}
+
+	if len(following) == 0 {
+		fmt.Println("You are not following any feeds.")
+		return nil
+	}
+
+	fmt.Printf("You are following %d feeds:\n", len(following))
+	for _, feed := range following {
+		fmt.Printf("* %s\n", feed.FeedName)
+	}
+	return nil
+}
+
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		// Get the current user from the database using the username stored in the configuration
+		currentUser, err := s.db.GetUser(context.Background(), s.config.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("You must be logged in to use this command!")
+		}
+		return handler(s, cmd, currentUser)
+	}
 }

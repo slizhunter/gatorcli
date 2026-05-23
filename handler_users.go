@@ -11,6 +11,7 @@ import (
 
 // handlerRegister handles the "register" command, which creates a new user in the database and sets it as the current user in the configuration.
 func handlerRegister(s *state, cmd command) error {
+	// Syntax: register <username>
 	// Ensure a username is provided as an argument
 	if len(cmd.Args) < 1 {
 		return fmt.Errorf("A username is required!")
@@ -29,7 +30,7 @@ func handlerRegister(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("Failed to create user: %v", err)
 	}
-	fmt.Printf("User created: %+v\n", user)
+	fmt.Printf("User created: %+v\n", user.Name)
 	// Set the current user in the configuration
 	s.config.SetUser(cmd.Args[0])
 	return nil
@@ -37,6 +38,7 @@ func handlerRegister(s *state, cmd command) error {
 
 // handlerLogin handles the "login" command, allowing the user to set their username in the configuration.
 func handlerLogin(s *state, cmd command) error {
+	// Syntax: login <username>
 	// Ensure a username is provided as an argument
 	if len(cmd.Args) < 1 {
 		return fmt.Errorf("A username is required!")
@@ -47,7 +49,7 @@ func handlerLogin(s *state, cmd command) error {
 	if err != nil {
 		return fmt.Errorf("User %v doesn't exist!", cmd.Args[0])
 	}
-	fmt.Printf("User found: %+v\n", user)
+	fmt.Printf("User found: %+v\n", user.Name)
 
 	// Set the current user in the configuration
 	s.config.SetUser(cmd.Args[0])
@@ -57,6 +59,7 @@ func handlerLogin(s *state, cmd command) error {
 
 // handlerUsers handles the "users" command, which retrieves and prints the list of all users from the database, indicating the current user.
 func handlerUsers(s *state, cmd command) error {
+	// Syntax: users
 	// Retrieve all users from the database
 	users, err := s.db.GetUsers(context.Background())
 	if err != nil {
