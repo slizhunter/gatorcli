@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"fmt"
 	"html"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/slizhunter/gatorcli/internal/database"
 )
 
@@ -150,6 +153,40 @@ func handlerAgg(s *state, cmd command) error {
 	}
 }
 
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	// Syntax: browse <number_of_posts (optional, default 2)>
+
+	// Default to showing 2 posts if no argument is provided
+	if len(cmd.Args) < 1 {
+		cmd.Args = append(cmd.Args, "2")
+	}
+	// Parse the number of posts to show from the command arguments
+	numPosts, err := strconv.Atoi(cmd.Args[0])
+	if err != nil {
+		return fmt.Errorf("Invalid number of posts: %v", err)
+	}
+
+	// Retrieve the latest posts from the database
+	posts, err := s.db.GetPostsForUser(context.Background(), database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit:  int32(numPosts),
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve posts: %v", err)
+	}
+
+	if len(posts) == 0 {
+		fmt.Println("No posts found.")
+		return nil
+	}
+
+	fmt.Printf("Showing %d latest posts:\n", len(posts))
+	for _, post := range posts {
+		fmt.Printf("* %s | %s\n", post.FeedName, post.Title)
+	}
+	return nil
+}
+
 // handlerFollow handles the "follow" command, which allows the current user to follow a feed by its name.
 func handlerFollow(s *state, cmd command, user database.User) error {
 	// Syntax: follow <feed URL>
@@ -257,6 +294,45 @@ func scrapeFeeds(s *state) {
 	}
 	log.Printf("Feed %s collected, %v posts found", feed.Channel.Title, len(feed.Channel.Items))
 	for _, item := range feed.Channel.Items {
-		fmt.Printf("New post: %s\n", item.Title)
+		//fmt.Printf("New post: %s\n", item.Title)
+		_, err := s.db.CreatePost(context.Background(), database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now(),
+			UpdatedAt:   time.Now(),
+			Title:       item.Title,
+			Url:         item.Link,
+			Description: sql.NullString{String: item.Description, Valid: item.Description != ""},
+			PublishedAt: sql.NullTime{Time: parseTime(item.PubDate), Valid: item.PubDate != ""},
+			FeedID:      feedToFetch.ID,
+		})
+		if err != nil {
+			if err.(*pq.Error).Code == "23505" {
+				// Duplicate URL, ignore
+			} else {
+				log.Printf("Failed to create post: %v", err)
+			}
+		}
+		//log.Printf("Post created: %s", post.Title)
 	}
+}
+
+// parseTime attempts to parse a time string using multiple common RSS date formats, returning the parsed time or the current time if parsing fails.
+func parseTime(timeStr string) time.Time {
+	// Common RSS date formats to try
+	layouts := []string{
+		time.RFC1123Z, // Example: "Mon, 02 Jan 2006 15:04:05 -0700"
+		time.RFC1123,  // Example: "Mon, 02 Jan 2006 15:04:05 MST"
+		time.RFC822Z,  // Example: "02 Jan 06 15:04 -0700"
+		time.RFC822,   // Example: "02 Jan 06 15:04 MST"
+		time.RFC850,   // Example: "Monday, 02-Jan-06 15:04:05 MST"
+		time.ANSIC,    // Example: "Mon Jan _2 15:04:05 2006"
+	}
+	// Try parsing the time string with each layout until one succeeds
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, timeStr); err == nil {
+			return t
+		}
+	}
+	log.Printf("Failed to parse time: %s", timeStr)
+	return sql.NullTime{Valid: false}.Time
 }
