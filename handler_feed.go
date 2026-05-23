@@ -178,6 +178,35 @@ func handlerFollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+// handlerUnfollow handles the "unfollow" command, which allows the current user to unfollow a feed by its name.
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	// Syntax: unfollow <feed URL>
+	// Get the current user from the database using the username stored in the configuration
+
+	// Ensure a feed URL is provided as an argument
+	if len(cmd.Args) < 1 {
+		return fmt.Errorf("A feed URL is required!")
+	}
+	feedURL := cmd.Args[0]
+
+	// Retrieve the feed from the database using the provided feed URL
+	feed, err := s.db.GetFeedByURL(context.Background(), feedURL)
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve feed: %v", err)
+	}
+
+	// Delete the feed follow from the database using the current user's ID and the retrieved feed's ID
+	err = s.db.DeleteFeedFollow(context.Background(), database.DeleteFeedFollowParams{
+		FeedID: feed.ID,
+		UserID: user.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to unfollow feed: %v", err)
+	}
+	fmt.Printf("%s unfollowed feed: %s\n", user.Name, feed.Name)
+	return nil
+}
+
 // handlerFollowing handles the "following" command, which retrieves and prints the list of feeds that the current user is following.
 func handlerFollowing(s *state, cmd command, user database.User) error {
 	// Syntax: following
